@@ -231,6 +231,7 @@
     <div class="menu-label">Menú</div>
     <button class="nav-btn active" data-view="dashboard"><span class="ic">◧</span> Dashboard</button>
     <button class="nav-btn" data-view="leads"><span class="ic">◉</span> Leads</button>
+    <button class="nav-btn" data-view="propuestas"><span class="ic">▤</span> Propuestas</button>
     <button class="nav-btn" data-view="config"><span class="ic">⚙</span> Panel de control</button>
     <div class="sidebar-foot">
       <div class="user-mail" id="user-mail"></div>
@@ -347,6 +348,29 @@
       </div>
     </section>
 
+    <!-- ===== PROPUESTAS ===== -->
+    <section class="view" id="view-propuestas">
+      <div class="page-head">
+        <h1>Propuestas</h1>
+        <p class="page-sub">Base de datos histórica de cotizaciones: qué programa se envió, a quién y a qué precio — tu referencia para nuevas propuestas.</p>
+      </div>
+      <div class="toolbar">
+        <input type="search" id="prop-search" placeholder="Buscar por palabras clave…">
+        <select id="prop-tipo"><option value="">Todos los tipos de programa</option></select>
+        <select id="prop-horas"><option value="">Todas las horas</option></select>
+        <select id="prop-letra"><option value="">Todas las letras</option></select>
+      </div>
+      <div class="card" id="prop-resumen" style="display:flex; gap:26px; flex-wrap:wrap; padding:14px 22px; margin-bottom:14px"></div>
+      <div class="table-card">
+        <table>
+          <thead><tr>
+            <th>Fecha</th><th>Cliente</th><th>Programa</th><th>Alcance</th><th>Enviada como</th><th>Total</th><th>Por persona</th><th>Por hora</th><th>Estatus</th>
+          </tr></thead>
+          <tbody id="prop-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
     <!-- ===== PANEL DE CONTROL ===== -->
     <section class="view" id="view-config">
       <div class="page-head"><h1>Panel de control</h1>
@@ -368,6 +392,11 @@
           <h3>Motivos de descarte</h3>
           <div id="cfg-motivos"></div>
           <div class="cfg-add"><input type="text" id="new-motivo" placeholder="Nuevo motivo"><button class="btn btn-green btn-sm" id="add-motivo">Agregar</button></div>
+        </div>
+        <div class="card">
+          <h3>Tipos de programa</h3>
+          <div id="cfg-tipos"></div>
+          <div class="cfg-add"><input type="text" id="new-tipoprog" placeholder="Nuevo tipo de programa"><button class="btn btn-green btn-sm" id="add-tipoprog">Agregar</button></div>
         </div>
         <div class="card">
           <h3>Apariencia</h3>
@@ -479,11 +508,21 @@
     <div class="dpane" id="pane-cot">
       <div class="inline-form">
         <div class="row">
-          <input id="cot-concepto" placeholder="Concepto de la propuesta">
-          <input id="cot-monto" type="number" min="0" step="1000" placeholder="Monto MXN">
+          <select id="cot-tipoprog"></select>
+          <input id="cot-concepto" placeholder="Nombre del programa">
+          <select id="cot-modalidad"><option>Presencial</option><option>En línea</option><option>Híbrida</option></select>
+        </div>
+        <div class="row">
+          <input id="cot-personas" type="number" min="0" placeholder="No. de personas">
+          <input id="cot-horas" type="number" min="0" step="0.5" placeholder="No. de horas">
           <input type="date" id="cot-fecha">
         </div>
-        <button class="btn btn-green btn-sm" id="cot-add" style="justify-self:end">Registrar propuesta</button>
+        <div class="row">
+          <select id="cot-tipocot"><option>Por grupo</option><option>Por persona</option><option>Por hora</option></select>
+          <input id="cot-monto" type="number" min="0" step="500" placeholder="Monto MXN">
+          <button class="btn btn-green btn-sm" id="cot-add">Registrar</button>
+        </div>
+        <div class="t-sub" id="cot-calc" style="font-weight:600"></div>
       </div>
       <div id="cot-list"></div>
     </div>
@@ -578,7 +617,7 @@ function renderThemeSwatches(active){
 }
 applyTheme(currentThemeName(), false);
 
-let S = { leads:[], seguimientos:[], pendientes:[], cotizaciones:[], ventas:[], etiquetas:[], fases:[], motivos:[] };
+let S = { leads:[], seguimientos:[], pendientes:[], cotizaciones:[], ventas:[], etiquetas:[], fases:[], motivos:[], tipos:[] };
 let editingLeadId = null, openLeadId = null, discardLeadId = null;
 let chMonths = null, chTags = null;
 
@@ -620,7 +659,7 @@ async function showApp(session){
 
 /* ---------------- CARGA DE DATOS ---------------- */
 async function loadAll(){
-  const [le, se, pe, co, ve, et, fa, mo] = await Promise.all([
+  const [le, se, pe, co, ve, et, fa, mo, tp] = await Promise.all([
     db.from("leads").select("*").order("created_at",{ascending:false}),
     db.from("seguimientos").select("*").order("fecha",{ascending:false}),
     db.from("pendientes").select("*").order("fecha",{ascending:true}),
@@ -628,11 +667,12 @@ async function loadAll(){
     db.from("ventas").select("*").order("fecha",{ascending:false}),
     db.from("etiquetas").select("*").order("orden",{ascending:true}),
     db.from("fases").select("*").order("orden",{ascending:true}),
-    db.from("motivos").select("*").order("nombre",{ascending:true})
+    db.from("motivos").select("*").order("nombre",{ascending:true}),
+    db.from("tipos_programa").select("*").order("orden",{ascending:true})
   ]);
-  const errs = [le,se,pe,co,ve,et,fa,mo].filter(r=>r.error);
+  const errs = [le,se,pe,co,ve,et,fa,mo,tp].filter(r=>r.error);
   if(errs.length){ toast("Error al cargar: " + errs[0].error.message); return; }
-  S = { leads:le.data, seguimientos:se.data, pendientes:pe.data, cotizaciones:co.data, ventas:ve.data, etiquetas:et.data, fases:fa.data, motivos:mo.data };
+  S = { leads:le.data, seguimientos:se.data, pendientes:pe.data, cotizaciones:co.data, ventas:ve.data, etiquetas:et.data, fases:fa.data, motivos:mo.data, tipos:tp.data };
   populateSelects();
   renderAll();
 }
@@ -647,8 +687,15 @@ function populateSelects(){
   $("d-motivo").innerHTML = S.motivos.map(m=>`<option>${esc(m.nombre)}</option>`).join("");
   const empresas = [...new Set(S.leads.map(l=>(l.empresa||"").trim()).filter(Boolean))].sort();
   $("empresas-list").innerHTML = empresas.map(e=>`<option value="${esc(e)}">`).join("");
+  const tipoOpts = S.tipos.map(t=>`<option>${esc(t.nombre)}</option>`).join("");
+  $("cot-tipoprog").innerHTML = tipoOpts;
+  const keep = (id, html) => { const v=$(id).value; $(id).innerHTML=html; $(id).value=v; };
+  keep("prop-tipo", '<option value="">Todos los tipos de programa</option>' + tipoOpts);
+  const horasSet = [...new Set(S.cotizaciones.map(c=>c.horas).filter(h=>h!==null && h!==undefined && h!==""))].sort((a,b)=>a-b);
+  keep("prop-horas", '<option value="">Todas las horas</option>' + horasSet.map(h=>`<option value="${h}">${h} h</option>`).join(""));
+  keep("prop-letra", '<option value="">Todas las letras</option>' + "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map(l=>`<option>${l}</option>`).join(""));
 }
-function renderAll(){ renderDashboard(); renderLeadsView(); renderConfig(); if(openLeadId) renderDrawer(); if(openCuentaName) renderCuentaDrawer(); }
+function renderAll(){ renderDashboard(); renderLeadsView(); renderPropuestas(); renderConfig(); if(openLeadId) renderDrawer(); if(openCuentaName) renderCuentaDrawer(); }
 
 /* ---------------- NAVEGACIÓN ---------------- */
 document.querySelectorAll(".nav-btn").forEach(b=>b.addEventListener("click",()=>{
@@ -692,7 +739,7 @@ function renderDashboard(){
   $("kpi-leads").textContent = leadsMes.length;
   $("kpi-leads-note").textContent = S.leads.filter(l=>l.estado==="Activo").length + " activos en total";
   $("kpi-props").textContent = propsMes.length;
-  $("kpi-props-note").textContent = fmtMXN.format(propsMes.reduce((s,c)=>s+Number(c.monto||0),0)) + " propuestos";
+  $("kpi-props-note").textContent = fmtMXN.format(propsMes.reduce((s,c)=>s+Number(c.monto_total ?? c.monto ?? 0),0)) + " propuestos";
 
   /* Funnel de leads — actividad del mes */
   const segMes = S.seguimientos.filter(s=>monthOf(s.fecha)===m);
@@ -727,7 +774,7 @@ function renderDashboard(){
     {label:"Descartadas", n:pDesc},
     {label:"Ventas", n:pVenta}
   ], THEME.light, THEME.deep);
-  $("fp-monto").textContent = fmtMXN.format(propsMes.reduce((s,c)=>s+Number(c.monto||0),0));
+  $("fp-monto").textContent = fmtMXN.format(propsMes.reduce((s,c)=>s+Number(c.monto_total ?? c.monto ?? 0),0));
   $("fp-tasa").textContent = propsMes.length ? Math.round((pVenta/propsMes.length)*100)+"%" : "0%";
 
   /* Gráfica: leads nuevos últimos 6 meses */
@@ -1082,12 +1129,19 @@ function renderDrawer(){
     <div class="sub-item">
       <div class="s-head">
         <span class="s-title">${esc(c.concepto)}</span>
+        ${c.tipo_programa ? `<span class="pill" style="background:var(--green-pale); color:var(--green)">${esc(c.tipo_programa)}</span>` : ""}
         <span class="t-sub">${fmtDate(c.fecha)}</span>
-        <strong style="font-variant-numeric:tabular-nums">${fmtMXN.format(c.monto||0)}</strong>
         <select data-cot-status="${c.id}">
           ${["Enviada","Oportunidad","Descartada","Venta"].map(o=>`<option ${c.estatus===o?"selected":""}>${o}</option>`).join("")}
         </select>
         <button class="btn btn-outline btn-sm" data-del-cot="${c.id}">Eliminar</button>
+      </div>
+      <div class="s-note" style="margin-top:6px">
+        ${[c.personas ? c.personas+" personas" : "", esc(c.modalidad), c.horas ? c.horas+" h" : ""].filter(Boolean).join(" · ") || ""}
+      </div>
+      <div class="s-note" style="margin-top:4px">
+        <strong>Enviada ${esc(c.tipo_cotizacion||"Por grupo").toLowerCase()}: ${fmtMXN.format(c.monto||0)}</strong>
+        &nbsp;·&nbsp; Total ${fmtMXN.format(c.monto_total ?? c.monto ?? 0)}${c.monto_persona ? " · Por persona "+fmtMXN.format(c.monto_persona) : ""}${c.monto_hora ? " · Por hora "+fmtMXN.format(c.monto_hora) : ""}
       </div>
     </div>`).join("") : '<div class="empty-note">Sin propuestas registradas.</div>';
 
@@ -1142,13 +1196,50 @@ $("pen-add").addEventListener("click", async ()=>{
   await loadAll();
 });
 
-/* Alta de cotización */
+/* Alta de cotización — cotizador por grupo, persona u hora */
+function calcCotizacion(tipo, monto, personas, horas){
+  monto=Number(monto)||0; personas=Number(personas)||0; horas=Number(horas)||0;
+  let total=0, porPersona=0, porHora=0;
+  if(tipo==="Por grupo"){ total=monto; porPersona=personas?total/personas:0; porHora=horas?total/horas:0; }
+  else if(tipo==="Por persona"){ porPersona=monto; total=monto*personas; porHora=horas?total/horas:0; }
+  else { porHora=monto; total=monto*horas; porPersona=personas?total/personas:0; }
+  return { total:Math.round(total), porPersona:Math.round(porPersona), porHora:Math.round(porHora) };
+}
+function cotKeywords(c, lead){
+  return norm([
+    c.concepto, c.tipo_programa, c.modalidad, c.tipo_cotizacion,
+    c.horas ? c.horas+" horas "+c.horas+"h" : "",
+    c.personas ? c.personas+" personas" : "",
+    lead ? leadLabel(lead) : "", lead ? lead.empresa : ""
+  ].join(" "));
+}
+function updateCotCalc(){
+  const {total, porPersona, porHora} = calcCotizacion($("cot-tipocot").value, $("cot-monto").value, $("cot-personas").value, $("cot-horas").value);
+  $("cot-calc").textContent = ($("cot-monto").value)
+    ? `Cálculo: Total ${fmtMXN.format(total)} · Por persona ${fmtMXN.format(porPersona)} · Por hora ${fmtMXN.format(porHora)}`
+    : "";
+}
+["cot-tipocot","cot-monto","cot-personas","cot-horas"].forEach(id=>$(id).addEventListener("input", updateCotCalc));
+
 $("cot-add").addEventListener("click", async ()=>{
   if(!openLeadId) return;
-  const concepto=$("cot-concepto").value.trim(); if(!concepto){ toast("Escribe el concepto de la propuesta."); return; }
-  const { error } = await db.from("cotizaciones").insert({ lead_id:openLeadId, concepto, monto:Number($("cot-monto").value||0), fecha:$("cot-fecha").value||todayISO(), estatus:"Enviada" });
+  const concepto=$("cot-concepto").value.trim(); if(!concepto){ toast("Escribe el nombre del programa."); return; }
+  const monto=Number($("cot-monto").value||0); if(!monto){ toast("Captura el monto de la cotización."); return; }
+  const tipo=$("cot-tipocot").value;
+  const personas=Number($("cot-personas").value||0)||null;
+  const horas=Number($("cot-horas").value||0)||null;
+  const {total, porPersona, porHora} = calcCotizacion(tipo, monto, personas, horas);
+  const c = {
+    lead_id:openLeadId, concepto,
+    tipo_programa:$("cot-tipoprog").value, modalidad:$("cot-modalidad").value,
+    personas, horas, tipo_cotizacion:tipo, monto,
+    monto_total:total, monto_persona:porPersona||null, monto_hora:porHora||null,
+    fecha:$("cot-fecha").value||todayISO(), estatus:"Enviada"
+  };
+  c.keywords = cotKeywords(c, S.leads.find(x=>x.id===openLeadId));
+  const { error } = await db.from("cotizaciones").insert(c);
   if(error){ toast("No se pudo registrar: "+error.message); return; }
-  $("cot-concepto").value=""; $("cot-monto").value="";
+  $("cot-concepto").value=""; $("cot-monto").value=""; $("cot-personas").value=""; $("cot-horas").value=""; $("cot-calc").textContent="";
   toast("Propuesta registrada.");
   await loadAll();
 });
@@ -1196,6 +1287,53 @@ $("dr-reactivar").addEventListener("click", async ()=>{
   await loadAll();
 });
 
+/* ---------------- PROPUESTAS (base de datos de cotizaciones) ---------------- */
+["prop-search","prop-tipo","prop-horas","prop-letra"].forEach(id=>$(id).addEventListener("input", renderPropuestas));
+const PROP_STATUS_STYLE = {
+  "Enviada":"background:#EAF0F7; color:#3E5C80",
+  "Oportunidad":"background:var(--amber-soft); color:var(--amber)",
+  "Descartada":"background:var(--red-soft); color:var(--red)",
+  "Venta":"background:var(--green-pale); color:var(--green)"
+};
+function renderPropuestas(){
+  const q=norm($("prop-search").value), ft=$("prop-tipo").value, fh=$("prop-horas").value, fl=$("prop-letra").value;
+  const rows = S.cotizaciones.filter(c=>{
+    const kw = c.keywords || norm([c.concepto, c.tipo_programa, c.modalidad].join(" "));
+    return (!q || q.split(/\s+/).every(w=>kw.includes(w))) &&
+      (!ft || c.tipo_programa===ft) &&
+      (!fh || String(c.horas)===String(fh)) &&
+      (!fl || norm(c.concepto).toUpperCase().startsWith(fl));
+  }).sort((a,b)=>(b.fecha||"").localeCompare(a.fecha||""));
+
+  const sumTotal = rows.reduce((s,c)=>s+Number(c.monto_total ?? c.monto ?? 0),0);
+  const conPersona = rows.filter(c=>c.monto_persona);
+  const conHora = rows.filter(c=>c.monto_hora);
+  const promPersona = conPersona.length ? conPersona.reduce((s,c)=>s+Number(c.monto_persona),0)/conPersona.length : 0;
+  const promHora = conHora.length ? conHora.reduce((s,c)=>s+Number(c.monto_hora),0)/conHora.length : 0;
+  const stat = (l,v)=>`<div><div class="m-label" style="font-size:11.5px; font-weight:600; color:var(--muted)">${l}</div><div style="font-family:var(--font-d); font-size:19px; font-weight:800; font-variant-numeric:tabular-nums">${v}</div></div>`;
+  $("prop-resumen").innerHTML =
+    stat("Propuestas", rows.length) +
+    stat("Monto total propuesto", fmtMXN.format(sumTotal)) +
+    stat("Promedio por persona", promPersona ? fmtMXN.format(promPersona) : "—") +
+    stat("Promedio por hora", promHora ? fmtMXN.format(promHora) : "—");
+
+  $("prop-tbody").innerHTML = rows.length ? rows.map(c=>{
+    const l = S.leads.find(x=>x.id===c.lead_id);
+    return `<tr class="row-click" data-prop-lead="${c.lead_id}">
+      <td style="white-space:nowrap">${fmtDate(c.fecha)}</td>
+      <td><div class="t-strong">${l ? esc(l.empresa)||esc(leadLabel(l)) : "—"}</div><div class="t-sub">${l ? esc(leadLabel(l)) : ""}</div></td>
+      <td><div class="t-strong">${esc(c.concepto)}</div>${c.tipo_programa ? `<span class="pill" style="background:var(--green-pale); color:var(--green)">${esc(c.tipo_programa)}</span>` : ""}</td>
+      <td><div class="t-sub">${[c.personas ? c.personas+" pers." : "", esc(c.modalidad), c.horas ? c.horas+" h" : ""].filter(Boolean).join(" · ") || "—"}</div></td>
+      <td><div style="font-size:12.5px; font-weight:700">${esc(c.tipo_cotizacion||"Por grupo")}</div><div class="t-sub" style="font-variant-numeric:tabular-nums">${fmtMXN.format(c.monto||0)}</div></td>
+      <td style="font-variant-numeric:tabular-nums; font-weight:700">${fmtMXN.format(c.monto_total ?? c.monto ?? 0)}</td>
+      <td style="font-variant-numeric:tabular-nums">${c.monto_persona ? fmtMXN.format(c.monto_persona) : "—"}</td>
+      <td style="font-variant-numeric:tabular-nums">${c.monto_hora ? fmtMXN.format(c.monto_hora) : "—"}</td>
+      <td><span class="pill" style="${PROP_STATUS_STYLE[c.estatus]||PROP_STATUS_STYLE["Enviada"]}">${esc(c.estatus)}</span></td>
+    </tr>`;
+  }).join("") : '<tr><td colspan="9" class="empty-note" style="padding:20px 16px">No hay propuestas que coincidan con los filtros.</td></tr>';
+  document.querySelectorAll("[data-prop-lead]").forEach(tr=>tr.addEventListener("click",()=>openDrawer(tr.dataset.propLead)));
+}
+
 /* ---------------- PANEL DE CONTROL ---------------- */
 function renderConfig(){
   const catRow=(t,item,withOrden,withColor)=>`
@@ -1209,6 +1347,7 @@ function renderConfig(){
   $("cfg-etiquetas").innerHTML=S.etiquetas.map(e=>catRow("etiquetas",e,false,true)).join("");
   $("cfg-fases").innerHTML=S.fases.map(f=>catRow("fases",f,true,false)).join("");
   $("cfg-motivos").innerHTML=S.motivos.map(m=>catRow("motivos",m,false,false)).join("");
+  $("cfg-tipos").innerHTML=S.tipos.map(t=>catRow("tipos_programa",t,false,false)).join("");
 
   document.querySelectorAll("[data-cfg-save]").forEach(b=>b.onclick=async ()=>{
     const [tabla,id]=b.dataset.cfgSave.split(":");
@@ -1240,6 +1379,7 @@ async function addCatalog(tabla, inputId, withOrden){
     payload.orden=(Math.max(0,...S.etiquetas.map(e=>e.orden||0))+1);
     payload.color=TAG_COLORS[S.etiquetas.length % TAG_COLORS.length];
   }
+  if(tabla==="tipos_programa") payload.orden=(Math.max(0,...S.tipos.map(t=>t.orden||0))+1);
   const { error } = await db.from(tabla).insert(payload);
   if(error){ toast("No se pudo agregar: "+error.message); return; }
   $(inputId).value="";
@@ -1249,6 +1389,7 @@ async function addCatalog(tabla, inputId, withOrden){
 $("add-etiqueta").addEventListener("click",()=>addCatalog("etiquetas","new-etiqueta",false));
 $("add-fase").addEventListener("click",()=>addCatalog("fases","new-fase",true));
 $("add-motivo").addEventListener("click",()=>addCatalog("motivos","new-motivo",false));
+$("add-tipoprog").addEventListener("click",()=>addCatalog("tipos_programa","new-tipoprog",false));
 
 /* ---------------- IMPORTACIÓN MASIVA ---------------- */
 let importReady = [];
